@@ -1,0 +1,129 @@
+---
+title: "Machine learning algorithm for Human Activity Recognition"
+output: 
+  html_document:
+    keep_md: true
+---
+
+```{r libraries, message=FALSE, echo=FALSE, warning=FALSE}
+library(caret);
+library(randomForest);
+```
+
+## Abstract
+
+This document analyses the Human Activity Recognition dataset obtained from:<br/>
+
+http://groupware.les.inf.puc-rio.br/har<br/>
+
+in order to construct a machine learning algorithm to predict the "classe" variable
+of the dataset. The following decissions are described in this document:
+
+* Cross validation setup
+* Selection of predictor variables
+* Model building
+* Out of sample error
+* Test set prediction
+
+## Cross validation setup
+
+In order to perform cross-validation, the training data is partitioned into two 
+randomly sampled datasets: one for training (75% of the data size) and one for 
+testing (25% of the data size).
+
+The training data will be used to construct the prediction model, and the testing 
+data will allow to compare the outcome values predicted by the model against 
+real values, and to obtain the expected out of sample error.
+
+```{r dataload, cache=TRUE}
+har <- read.csv("pml-training.csv", header = TRUE);
+inTrain <- createDataPartition(y = har$classe, p = 0.75, list = FALSE);
+training <- har[inTrain, ];
+testing <- har[-inTrain, ];
+dim(training); dim(testing);
+```
+
+## Selection of predictor variables
+
+After analysing the dataset variables and their meaning, the following groups 
+of variables are discarded for their use in the training model:
+
+* X: sample index is irrelevant to the outcome.
+* user_name: subject is not relevant to the outcome.
+* Timestamp variables: date and time have no effect on the quality of the activity.
+* Window variables: calculated values, used to indicate which rows act as summary rows.
+* Summary variables (kurtosis, skewness, max, min, amplitude, var, avg, stddev): 
+calculated variables, only available on "window summary" rows. All of them have NA 
+or empty values in most of the rows.
+* classe: this is the outcome variable to be predicted.
+
+```{r valselect1}
+selVars <- sapply(training, function(x) !any(is.na(x) | x == ''));
+selVars[c(1:7,160)] = FALSE;
+numVar <- sum(selVars);
+```
+
+After removing the discarded variables, the next `r numVar` remaining variables 
+will be used to train the model:
+
+```{r valselect2, echo=FALSE}
+names(selVars[selVars==TRUE]);
+```
+
+## Model building
+
+Taking into account that the aim of this model is to achieve maximum accuracy, 
+versus speed or interpretability features, the chosen model to train is a random 
+forest.<br/>
+Random forests are an extension to prediction trees, which perform a number of 
+iterations to build the model. Samples and variables are bootstrapped and a new 
+tree is built during each iteration. Outcomes from every grown tree are then 
+averaged to predict new values.<br/>
+As an initial approach, random forest default call values are used to train the model:
+
+```{r training, cache=TRUE, message=FALSE}
+modFit <- randomForest(x = training[,seq_along(selVars)[selVars==TRUE]], y = training$classe);
+
+missClass = function(values,prediction){sum(prediction != values)/length(values)};
+trainPred <- predict(modFit, training[,seq_along(selVars)[selVars==TRUE]]);
+trainMissclas <- missClass(training[,160], trainPred);
+```
+The missclasification rate on the training set is `r trainMissclas`, which can 
+be a signal of a certain overfitting.
+
+## Out of sample error
+
+After building the model, it can be used to predict the outcome of the testing set 
+and compare the obtained values against the actual ones.
+This comparison will return the out of sample error and the accuracy of the built 
+model.<br/>
+
+```{r testing}
+testPred <- predict(modFit, testing[,seq_along(selVars)[selVars==TRUE]]);
+testMissclas <- missClass(testing[,160], testPred);
+accuracy <- sum(testPred == testing[,160]) / nrow(testing);
+```
+
+The missclasification rate on the testing set (out of sample error) is `r testMissclas`.
+The accuracy of the model on the test set is `r accuracy`, which is high enough 
+for the purposes of this model.<br/>
+The confussion matrix shows the accuracy obtained for each outcome value, along 
+with the sensitivity and specifity of the model:
+
+```{r confusionmatrix}
+confusionMatrix(testPred, testing[,160]);
+```
+
+## Test set prediction
+
+After the prediction model has been built and trained, it can be used to predict 
+the outcome values from the quizz set, which has no actual values to be checked 
+against predictions.
+
+```{r quizzresult}
+quizz <- read.csv(file = "pml-testing.csv", header = TRUE);
+result <- predict(modFit, quizz[,seq_along(selVars)[selVars==TRUE]]);
+```
+The values predicted by the model are the following:
+
+`r result`
